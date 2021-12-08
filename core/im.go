@@ -15,6 +15,7 @@ type Sender interface {
 	GetImType() string
 	GetMessageID() int
 	GetUsername() string
+	GetChatname() string
 	IsReply() bool
 	GetReplySenderUserID() int
 	GetRawMessage() interface{}
@@ -33,6 +34,7 @@ type Sender interface {
 	Finish()
 	Continue()
 	IsContinue() bool
+	ClearContinue()
 	Await(Sender, func(Sender) interface{}, ...interface{}) interface{}
 	Copy() Sender
 }
@@ -46,8 +48,11 @@ var E Edit
 var R Replace
 var N Notify
 
+type ImageData []byte
+type ImageBase64 string
 type ImageUrl string
 type ImagePath string
+type VideoUrl string
 
 type Faker struct {
 	Message string
@@ -81,6 +86,10 @@ func (sender *Faker) GetMessageID() int {
 }
 
 func (sender *Faker) GetUsername() string {
+	return ""
+}
+
+func (sender *Faker) GetChatname() string {
 	return ""
 }
 
@@ -175,6 +184,10 @@ func (sender *BaseSender) IsContinue() bool {
 	return sender.goon
 }
 
+func (sender *BaseSender) ClearContinue() {
+	sender.goon = false
+}
+
 func (sender *BaseSender) Get(index ...int) string {
 	i := 0
 	if len(index) != 0 {
@@ -255,6 +268,10 @@ var YesNo YesOrNo = "yeson"
 var Yes YesOrNo = "yes"
 var No YesOrNo = "no"
 
+type Range []int
+
+type Switch []string
+
 var ForGroup forGroup
 
 func (_ *BaseSender) Await(sender Sender, callback func(Sender) interface{}, params ...interface{}) interface{} {
@@ -280,9 +297,9 @@ func (_ *BaseSender) Await(sender Sender, callback func(Sender) interface{}, par
 			fg = &a
 		}
 	}
-	if callback == nil {
-		return nil
-	}
+	// if callback == nil {
+	// 	return nil
+	// }
 	if c.Pattern == "" {
 		c.Pattern = `[\s\S]*`
 	}
@@ -305,6 +322,9 @@ func (_ *BaseSender) Await(sender Sender, callback func(Sender) interface{}, par
 			switch result.(type) {
 			case Sender:
 				s := result.(Sender)
+				if callback == nil {
+					return s.GetContent()
+				}
 				result := callback(s)
 				if v, ok := result.(again); ok {
 					if v == "" {
@@ -313,14 +333,32 @@ func (_ *BaseSender) Await(sender Sender, callback func(Sender) interface{}, par
 						c.Result <- string(v)
 					}
 				} else if _, ok := result.(YesOrNo); ok {
-					if "y" == strings.ToLower(s.GetContent()) {
+					if strings.ToLower(s.GetContent()) == "y" {
 						return Yes
 					}
 
-					if "n" == strings.ToLower(s.GetContent()) {
+					if strings.ToLower(s.GetContent()) == "n" {
 						return No
 					}
 					c.Result <- "Y or n ?"
+				} else if vv, ok := result.(Switch); ok {
+					ct := s.GetContent()
+					for _, v := range vv {
+						if ct == v {
+							return v
+						}
+					}
+					c.Result <- fmt.Sprintf("请从%s中选择一个。", strings.Join(vv, "、"))
+				} else if vv, ok := result.(Range); ok {
+					ct := s.GetContent()
+					n := Int(ct)
+					if fmt.Sprint(n) == ct {
+						if (n >= vv[0]) && (n <= vv[1]) {
+
+							return n
+						}
+					}
+					c.Result <- fmt.Sprintf("请从%d~%d中选择一个整数。", vv[0], vv[1])
 				} else {
 					c.Result <- result
 					return nil
